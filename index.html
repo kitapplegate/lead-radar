@@ -517,15 +517,28 @@
     if (document.getElementById("drawer").classList.contains("show")) openLead(id);
   }
 
-  const OUTREACH_KEY = "lead-radar-outreach-v1";
-  const OFFER_BY_INDUSTRY = {
-    "Spill Response": "post-incident write-ups and HAZWOPER paperwork packets a person still reviews",
-    "Environmental Labs": "chain-of-custody and client report packets",
-    "Oilfield Services": "JSA and crew paperwork packets",
-    "Water and Wastewater": "monthly report and DMR draft helpers a person still signs",
-    "Hazmat Trucking": "DQ files and hazmat training records",
-    "Waste Haulers": "manifest and route compliance packets",
-    "Ag Chemical Dealers": "seasonal applicator and transport paperwork"
+  const OUTREACH_KEY = "lead-radar-outreach-v2";
+  // Hand-written hooks. Do not paste Jev reason text verbatim.
+  const HOOK_BY_REASON = {
+    spill_osro: "the write-ups after a spill job never really stop",
+    local_lab: "chain of custody and client reports eat real hours",
+    oilfield_small: "JSA and crew paperwork pile up on small crews",
+    water_dmr: "monthly operating reports show up whether the week was quiet or not",
+    hazmat_fleet: "DQ files and hazmat training records are always due",
+    waste_hauler: "manifests and route packs are a constant",
+    ag_chem: "seasonal applicator and transport paperwork hits hard when the season does",
+    too_big: "regulated work still means a lot of recordkeeping",
+    gov: "the paperwork load is real",
+    thin_signal: "regulated work usually means messy paperwork"
+  };
+  const HOOK_BY_INDUSTRY = {
+    "Spill Response": "post-job paperwork in spill response never really stops",
+    "Environmental Labs": "labs live on clean chain of custody and reports",
+    "Oilfield Services": "small oilfield crews drown in JSA and crew packs",
+    "Water and Wastewater": "monthly operating reports keep coming either way",
+    "Hazmat Trucking": "DQ files and hazmat training records never take a week off",
+    "Waste Haulers": "manifests and route packs are constant",
+    "Ag Chemical Dealers": "seasonal applicator and transport paperwork hits hard"
   };
 
   function loadOutreach() {
@@ -546,24 +559,20 @@
     const city = lead.city || "your area";
     const state = lead.state || "OK";
     const industry = lead.industry || "your industry";
-    let reason = (lead.reason || "Small regulated shop with recurring paperwork").replace(/\s+/g, " ").trim();
-    if (reason && !/[.!?]$/.test(reason)) reason += ".";
-    const offer = OFFER_BY_INDUSTRY[industry] || "compliance docs, recordkeeping, and simple AI tools under human review";
-    const subjectSafe = `Quick hello from Stillwater - ${name}`;
+    const hook = HOOK_BY_REASON[lead.reason_key] || HOOK_BY_INDUSTRY[industry] || "regulated work usually means messy paperwork";
+    const subject = `Hello from Stillwater`;
     const body = [
       `Hi ${name} team,`,
       ``,
-      `I am Kit Applegate with Marzipan Solutions in Stillwater. After about 20 years as a USCG Marine Science Technician I moved home to help small regulated firms with compliance paperwork and simple internal tools.`,
+      `I'm Kit Applegate. I run Marzipan Solutions out of Stillwater. I spent 20 years in the Coast Guard working alongside oil spill response companies, and I'm back home building small tools that help regulated shops keep their paperwork under control.`,
       ``,
-      `${name} in ${city}, ${state} (${industry}) stood out: ${reason} I help with ${offer}.`,
-      ``,
-      `I am not a certified operator and I do not sign filings or give legal or engineering opinions. Open to a 15-minute call or coffee if useful.`,
+      `${name} in ${city}, ${state} caught my eye because ${hook}. If a 15 minute call or a coffee would be useful, I'm around.`,
       ``,
       `Kit Applegate`,
       `Marzipan Solutions`,
       `Stillwater, OK`
     ].join("\n");
-    return { subject: subjectSafe, body };
+    return { subject, body };
   }
 
   function wordCount(s) {
