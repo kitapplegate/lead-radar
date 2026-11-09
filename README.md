@@ -15,7 +15,7 @@ Open the GitHub Pages site after it is enabled:
 1. **Find** - filter by industry and radius from Stillwater, map pins, list sorted by Jev fit score
 2. **Score** - each lead has a 0 to 100 Jev score and a one-line reason
 3. **Track** - pipeline stages: New, Researched, Warm intro, Talked, Proposal (saved in localStorage)
-4. **Next step** - suggested action and a draft note marked **Review before sending** (nothing sends)
+4. **Next step** - suggested action plus **Draft outreach** (industry templates filled with the lead name, city, and Jev reason). Edit, copy, or open in email. Edits stay in localStorage. Nothing sends on its own.
 
 ## Data
 

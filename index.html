@@ -210,6 +210,45 @@
     display: inline-block; margin-top: 8px; color: var(--rust);
     font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
   }
+  .outreach-actions {
+    display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
+  }
+  .outreach-actions button, .btn {
+    border: 1px solid var(--line); background: var(--paper2); color: var(--ink);
+    border-radius: 999px; padding: 10px 14px; font: inherit; font-size: 0.88rem;
+    font-weight: 600; cursor: pointer;
+  }
+  .outreach-actions button.primary, .btn.primary {
+    background: var(--teal); color: #fff; border-color: var(--teal);
+  }
+  .outreach-actions button:disabled {
+    opacity: 0.55; cursor: default;
+  }
+  .outreach-editor {
+    display: none; margin-top: 12px;
+  }
+  .outreach-editor.show { display: block; }
+  .outreach-editor label {
+    display: block; font-size: 0.72rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 4px;
+  }
+  .outreach-editor input[type="text"],
+  .outreach-editor textarea {
+    width: 100%; font: inherit; color: var(--ink);
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+  }
+  .outreach-editor textarea {
+    min-height: 220px; resize: vertical; line-height: 1.45;
+  }
+  .outreach-hint {
+    margin: 6px 0 0; font-size: 0.8rem; color: var(--muted);
+  }
+  .copy-toast {
+    display: none; margin-top: 8px; color: var(--teal);
+    font-size: 0.82rem; font-weight: 700;
+  }
+  .copy-toast.show { display: block; }
   .stage-btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .stage-btns button {
     border: 1px solid var(--line); background: var(--paper2); color: var(--ink);
@@ -478,6 +517,59 @@
     if (document.getElementById("drawer").classList.contains("show")) openLead(id);
   }
 
+  const OUTREACH_KEY = "lead-radar-outreach-v1";
+  const OFFER_BY_INDUSTRY = {
+    "Spill Response": "post-incident write-ups and HAZWOPER paperwork packets a person still reviews",
+    "Environmental Labs": "chain-of-custody and client report packets",
+    "Oilfield Services": "JSA and crew paperwork packets",
+    "Water and Wastewater": "monthly report and DMR draft helpers a person still signs",
+    "Hazmat Trucking": "DQ files and hazmat training records",
+    "Waste Haulers": "manifest and route compliance packets",
+    "Ag Chemical Dealers": "seasonal applicator and transport paperwork"
+  };
+
+  function loadOutreach() {
+    try { return JSON.parse(localStorage.getItem(OUTREACH_KEY) || "{}"); }
+    catch (_) { return {}; }
+  }
+  function saveOutreachMap(map) {
+    localStorage.setItem(OUTREACH_KEY, JSON.stringify(map));
+  }
+  function saveOutreachLead(id, subject, body) {
+    const map = loadOutreach();
+    map[id] = { subject, body, updated_at: new Date().toISOString() };
+    saveOutreachMap(map);
+  }
+
+  function buildOutreach(lead) {
+    const name = lead.name || "your team";
+    const city = lead.city || "your area";
+    const state = lead.state || "OK";
+    const industry = lead.industry || "your industry";
+    let reason = (lead.reason || "Small regulated shop with recurring paperwork").replace(/\s+/g, " ").trim();
+    if (reason && !/[.!?]$/.test(reason)) reason += ".";
+    const offer = OFFER_BY_INDUSTRY[industry] || "compliance docs, recordkeeping, and simple AI tools under human review";
+    const subjectSafe = `Quick hello from Stillwater - ${name}`;
+    const body = [
+      `Hi ${name} team,`,
+      ``,
+      `I am Kit Applegate with Marzipan Solutions in Stillwater. After about 20 years as a USCG Marine Science Technician I moved home to help small regulated firms with compliance paperwork and simple internal tools.`,
+      ``,
+      `${name} in ${city}, ${state} (${industry}) stood out: ${reason} I help with ${offer}.`,
+      ``,
+      `I am not a certified operator and I do not sign filings or give legal or engineering opinions. Open to a 15-minute call or coffee if useful.`,
+      ``,
+      `Kit Applegate`,
+      `Marzipan Solutions`,
+      `Stillwater, OK`
+    ].join("\n");
+    return { subject: subjectSafe, body };
+  }
+
+  function wordCount(s) {
+    return String(s || "").trim().split(/\s+/).filter(Boolean).length;
+  }
+
   function openLead(id) {
     const l = leads.find(x => x.id === id);
     if (!l) return;
@@ -497,9 +589,23 @@
         <h3>Suggested next step</h3>
         <p>${escapeHtml(l.next_action || "")}</p>
       </div>
-      <div class="section">
+      <div class="section" id="outreachSection">
         <h3>Draft note</h3>
-        <div class="draft">${escapeHtml(l.draft_note || "")}<div class="review">Review before sending</div></div>
+        <div class="draft">${escapeHtml(l.draft_note || "Build a short outreach note you can edit, copy, or open in email.")}</div>
+        <div class="outreach-actions">
+          <button type="button" class="primary" id="btnDraftOutreach">Draft outreach</button>
+          <button type="button" id="btnCopyOutreach" disabled>Copy</button>
+          <button type="button" id="btnMailOutreach" disabled>Open in email</button>
+        </div>
+        <div class="outreach-editor" id="outreachEditor">
+          <label for="outreachSubject">Subject</label>
+          <input type="text" id="outreachSubject" autocomplete="off" />
+          <label for="outreachBody">Note</label>
+          <textarea id="outreachBody" spellcheck="true"></textarea>
+          <p class="outreach-hint">Nothing sends on its own. Edits stay on this phone in local storage. <span id="outreachWords"></span></p>
+          <div class="copy-toast" id="copyToast">Copied. Paste into your email app when ready.</div>
+          <div class="review">Review before sending</div>
+        </div>
       </div>
       <div class="section">
         <h3>Move in pipeline</h3>
@@ -517,6 +623,67 @@
     backdrop.onclick = closeDrawer;
     drawer.querySelectorAll(".stage-btns button").forEach(btn => {
       btn.addEventListener("click", () => setStage(l.id, btn.dataset.stage));
+    });
+
+    const editor = document.getElementById("outreachEditor");
+    const subjectEl = document.getElementById("outreachSubject");
+    const bodyEl = document.getElementById("outreachBody");
+    const wordsEl = document.getElementById("outreachWords");
+    const btnDraft = document.getElementById("btnDraftOutreach");
+    const btnCopy = document.getElementById("btnCopyOutreach");
+    const btnMail = document.getElementById("btnMailOutreach");
+    const toast = document.getElementById("copyToast");
+
+    function refreshWordCount() {
+      const n = wordCount(bodyEl.value);
+      wordsEl.textContent = n ? (n + " words") : "";
+    }
+    function persist() {
+      saveOutreachLead(l.id, subjectEl.value, bodyEl.value);
+    }
+    function showEditor(subject, body) {
+      subjectEl.value = subject || "";
+      bodyEl.value = body || "";
+      editor.classList.add("show");
+      btnCopy.disabled = false;
+      btnMail.disabled = false;
+      refreshWordCount();
+    }
+
+    // Restore prior edit if present
+    const saved = loadOutreach()[l.id];
+    if (saved && (saved.subject || saved.body)) {
+      showEditor(saved.subject, saved.body);
+      btnDraft.textContent = "Reset to template";
+    }
+
+    btnDraft.addEventListener("click", () => {
+      const draft = buildOutreach(l);
+      showEditor(draft.subject, draft.body);
+      persist();
+      btnDraft.textContent = "Reset to template";
+      toast.classList.remove("show");
+    });
+    subjectEl.addEventListener("input", () => { persist(); });
+    bodyEl.addEventListener("input", () => { persist(); refreshWordCount(); });
+    btnCopy.addEventListener("click", async () => {
+      const textOut = `Subject: ${subjectEl.value}\n\n${bodyEl.value}`;
+      try {
+        await navigator.clipboard.writeText(textOut);
+      } catch (_) {
+        const ta = document.createElement("textarea");
+        ta.value = textOut;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+      }
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    });
+    btnMail.addEventListener("click", () => {
+      const to = (l.email || "").trim();
+      window.location.href = `mailto:${to}?subject=${encodeURIComponent(subjectEl.value)}&body=${encodeURIComponent(bodyEl.value)}`;
     });
   }
 
