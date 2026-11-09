@@ -517,29 +517,51 @@
     if (document.getElementById("drawer").classList.contains("show")) openLead(id);
   }
 
-  const OUTREACH_KEY = "lead-radar-outreach-v4";
-  // Hand-written hooks. Do not paste Jev reason text verbatim.
-  const HOOK_BY_REASON = {
-    spill_osro: "the write-ups after a spill job never really stop",
-    local_lab: "chain of custody and client reports eat real hours",
-    oilfield_small: "JSA and crew paperwork pile up on small crews",
-    water_dmr: "monthly operating reports show up whether the week was quiet or not",
-    hazmat_fleet: "DQ files and hazmat training records are always due",
-    waste_hauler: "manifests and route packs are a constant",
-    ag_chem: "seasonal applicator and transport paperwork hits hard when the season does",
-    too_big: "regulated work still means a lot of recordkeeping",
-    gov: "the paperwork load is real",
-    thin_signal: "regulated work usually means messy paperwork"
+  const OUTREACH_KEY = "lead-radar-outreach-v5";
+  // Industry paragraphs from Scout regs-by-industry.md (most painful items).
+  // State add-ons use only verified differences from that file.
+  const INDUSTRY_PARA = {
+    "Spill Response": "On spill jobs the boom comes up faster than the paperwork. I build tools that pull the closeout packet together so your people can check the manifests, shipping papers, and disposal tickets before they sign.",
+    "Environmental Labs": "One missing signature or time on a chain of custody can make a result useless for a client's permit. I build tools that keep custody and receipt records organized so your QA people can review them fast.",
+    "Oilfield Services": "Each haul ticket has to match the permit, lease, and disposal well. I build tools that keep those tickets lined up so your office can review them.",
+    "Water and Wastewater": "Your operators already ran the bench sheets. I build tools that line those numbers up for the DMR so the person who signs can check it in minutes, not a Saturday.",
+    "Hazmat Trucking": "Every driver file is a pile of dates that come due on different days. I build tools that flag what's due next so your safety person catches it before a roadside stop does.",
+    "Waste Haulers": "Your drivers get the signature at every stop. I build tools that turn that stack of trip tickets into clean records and an annual summary draft for your office to check.",
+    "Ag Chemical Dealers": "Every restricted-use sale means checking a license and writing it down right, in the middle of spring rush. I build tools that keep that sales log clean so your manager can review it when they need to."
   };
-  const HOOK_BY_INDUSTRY = {
-    "Spill Response": "post-job paperwork in spill response never really stops",
-    "Environmental Labs": "labs live on clean chain of custody and reports",
-    "Oilfield Services": "small oilfield crews drown in JSA and crew packs",
-    "Water and Wastewater": "monthly operating reports keep coming either way",
-    "Hazmat Trucking": "DQ files and hazmat training records never take a week off",
-    "Waste Haulers": "manifests and route packs are constant",
-    "Ag Chemical Dealers": "seasonal applicator and transport paperwork hits hard"
+  const STATE_ADDON = {
+    "Spill Response|OK": "On Oklahoma oilfield work, OCC also wants that 24-hour spill report kept straight.",
+    "Spill Response|TX": "In Texas the same packet has to line up with the TCEQ spill report clock.",
+    "Environmental Labs|OK": "In Oklahoma that also means DEQ renewal and those twice-a-year PT studies.",
+    "Environmental Labs|TX": "In Texas, permit data only counts from a TCEQ-accredited lab.",
+    "Oilfield Services|OK": "In Oklahoma that's the OCC saltwater shipping document per load and a numbered register at the shop.",
+    "Oilfield Services|TX": "In Texas those loads have to match your RRC waste hauler permit and its approved disposal systems.",
+    "Water and Wastewater|OK": "In Oklahoma those eDMRs go through ODEQ's E2 and ERS before someone signs.",
+    "Hazmat Trucking|AR": "In Arkansas you also keep that annual Highway Police hazmat transport permit current.",
+    "Hazmat Trucking|MO": "In Missouri that includes keeping the MoDOT hazardous waste transporter license current.",
+    "Waste Haulers|TX": "In Texas grease trap and septage routes also need trip tickets each stop and a July 1 annual summary.",
+    "Ag Chemical Dealers|MO": "Missouri makes you keep those restricted-use pesticide sales records for three years.",
+    "Ag Chemical Dealers|OK": "In Oklahoma those restricted-use sales records stay on file at least two years."
   };
+
+  function displayName(name) {
+    const raw = String(name || "your team").trim();
+    const cleaned = raw.replace(/\s*\(dba\b[^)]*\)/i, "").trim();
+    return cleaned || raw || "your team";
+  }
+
+  function industryParagraph(lead) {
+    const industry = lead.industry || "";
+    const state = lead.state || "";
+    const base = INDUSTRY_PARA[industry] || "Small regulated shops drown in the same paperwork week after week. I build tools that organize it so your own people can review and sign what goes out.";
+    const addon = STATE_ADDON[industry + "|" + state];
+    if (!addon) return base;
+    const parts = base.match(/[^.!?]+[.!?]+/g) || [base];
+    if (parts.length >= 2) {
+      return (parts[0].trim() + " " + addon + " " + parts.slice(1).join(" ").trim()).replace(/\s+/g, " ").trim();
+    }
+    return (base + " " + addon).replace(/\s+/g, " ").trim();
+  }
 
   function loadOutreach() {
     try { return JSON.parse(localStorage.getItem(OUTREACH_KEY) || "{}"); }
@@ -555,18 +577,17 @@
   }
 
   function buildOutreach(lead) {
-    const name = lead.name || "your team";
-    const city = lead.city || "your area";
-    const state = lead.state || "OK";
-    const industry = lead.industry || "your industry";
-    const hook = HOOK_BY_REASON[lead.reason_key] || HOOK_BY_INDUSTRY[industry] || "regulated work usually means messy paperwork";
+    const name = displayName(lead.name);
     const subject = `Hello from Stillwater`;
+    const para = industryParagraph(lead);
     const body = [
       `Hi ${name} team,`,
       ``,
-      `I'm Kit Applegate. I run Marzipan Solutions out of Stillwater. I spent 20 years in the Coast Guard working alongside oil spill response companies, and I'm back home building small tools that help regulated shops keep their paperwork under control.`,
+      `I'm Kit Applegate. I run Marzipan Solutions out of Stillwater. I spent 20 years in the Coast Guard working alongside oil spill response companies. I moved back home and started building tools that take the busywork off small teams.`,
       ``,
-      `${name} in ${city}, ${state} caught my eye because ${hook}. If it'd help, I'd be glad to stop by and see if I can take some of the repetitive work off your plate by automating it.`,
+      para,
+      ``,
+      `If it'd help, I'd be glad to stop by and see if I can take some of the repetitive work off your plate by automating it.`,
       ``,
       `Kit Applegate`,
       `Marzipan Solutions`,
