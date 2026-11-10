@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -293,7 +294,209 @@ def batch_score(leads: list[dict]) -> dict:
     return usage_acc
 
 
+# ---------------------------------------------------------------------------
+# --local: all small businesses in Stillwater, Cushing, Perry, Morrison.
+# Input comes from collect_local.py (local_candidates.json). Scores are
+# merged into the existing leads.json; the regulated leads stay untouched.
+# ---------------------------------------------------------------------------
+
+LOCAL_TOWNS = ["Stillwater", "Cushing", "Perry", "Morrison"]
+
+LOCAL_REASONS = {
+    "field_reports": "Field crew whose job notes, photos and logs become reports by hand",
+    "compliance_records": "Regulated work with recurring compliance records to keep straight",
+    "client_followups": "Steady client intake, reminders and follow-up emails a small staff handles",
+    "document_office": "Office that runs on documents: client files, forms, and paperwork",
+    "sop_lookup": "Staff dig through manuals, price books or old job files for answers",
+    "recurring_reports": "Someone likely builds the same report or schedule by hand every week",
+    "light_admin": "Small shop with light admin; low paperwork pain",
+    "corporate_systems": "Chain, franchise, or large org that likely runs corporate systems",
+    "thin_signal": "Thin public signal; worth a light research pass",
+}
+
+LOCAL_CRITERIA = [
+    "Poor fit: chain, franchise, nonprofit, or no repeating office work to automate",
+    "Weak fit: tiny walk-in shop with light admin, or already well-tooled",
+    "Moderate fit: some repeating admin or follow-ups, but a modest payoff",
+    "Strong fit: small local team with a clear repeating paperwork, report, or follow-up job",
+    "Excellent fit: small local team buried in field reports, compliance records, or client paperwork, no IT staff",
+]
+
+LOCAL_NEXT = {
+    "Medical & Dental": "Ask who handles intake forms, recall reminders, and insurance paperwork, and how long it takes them each week.",
+    "Veterinary & Animal": "Ask how vaccine reminders and visit follow-ups go out today.",
+    "Legal": "Ask which documents they rebuild from scratch for every client.",
+    "Accounting & Finance": "Ask how client documents come in at tax time and who chases the missing ones.",
+    "Insurance": "Ask how renewals, quote follow-ups, and certificate requests are tracked.",
+    "Real Estate & Property": "Ask how work orders, lease paperwork, and tenant messages are handled.",
+    "Trades & Contractors": "Ask how a job goes from field notes and photos to an invoice or closeout packet.",
+    "Energy & Industrial": "Ask which field tickets, safety forms, or compliance logs get retyped in the office.",
+    "Auto & Equipment": "Ask how estimates, service reminders, and parts orders are tracked.",
+    "Lodging & Events": "Ask how bookings, event contracts, and guest follow-ups are handled.",
+    "Professional Services": "Ask which weekly report or client update they build by hand.",
+    "Childcare & Education": "Ask how enrollment forms, attendance, and parent messages are handled.",
+    "Salon & Personal Care": "Ask how no-shows, rebooking reminders, and product orders are handled.",
+    "Fitness & Recreation": "Ask how memberships, waivers, and lapsed-member follow-ups are handled.",
+    "Food & Drink": "Ask how catering orders, supplier orders, and the weekly schedule get done.",
+    "Retail": "Ask how inventory reorders and special orders are tracked.",
+    "Agriculture": "Ask which seasonal records or customer orders are kept on paper.",
+}
+
+
+def load_local_leads() -> list[dict]:
+    src = json.loads((ROOT / "local_candidates.json").read_text(encoding="utf-8"))
+    leads = []
+    for r in src:
+        leads.append(
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "industry": r["industry"],
+                "city": r["town"],
+                "state": "OK",
+                "website": r.get("website"),
+                "source_link": r.get("source_link"),
+                "source": r.get("source"),
+                "address": r.get("address"),
+                "description": "; ".join(
+                    x for x in (r["industry"], (r.get("osm_type") or "").replace("_", " "), r.get("address")) if x
+                ),
+                "lat": r["lat"],
+                "lon": r["lon"],
+                "miles_from_stillwater": r["miles_from_stillwater"],
+                "score": None,
+                "reason": None,
+                "reason_key": None,
+                "confidence": None,
+                "next_action": LOCAL_NEXT.get(r["industry"], "Do a light research pass on their public listing."),
+                "draft_note": "Draft a short intro note. Review before sending.",
+                "stage": "New",
+                "segment": "Local small business",
+            }
+        )
+    return leads
+
+
+def score_local(leads: list[dict]) -> dict:
+    usage_acc = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0, "estimated": True, "failed_batches": 0}
+    context = [
+        "Score each local business for fit with Marzipan Solutions (Stillwater, OK, one-person shop run by Kit Applegate).",
+        "Marzipan builds small automation tools for businesses without a developer, each around one job the team already repeats:",
+        "1) AI search that answers from the business's own SOPs, manuals and old job files;",
+        "2) reports that build and send themselves on a schedule;",
+        "3) scheduled agents that sort requests and draft follow-ups for a person to approve;",
+        "4) field-to-report paperwork: job notes, photos and voice memos into daily logs and closeout packets.",
+        "Prefer: locally owned, small staff, a repeating paperwork, report, intake or follow-up job, no IT staff.",
+        "Avoid: chains, franchises, hospitals, nonprofits, government, and tiny walk-in shops with little office work.",
+        "Judge from the name and type only; do not invent facts. Leads:",
+    ]
+    for i in range(0, len(leads), BATCH):
+        batch = leads[i : i + BATCH]
+        state_lines = list(context)
+        questions = {}
+        for lead in batch:
+            cid = lead["id"]
+            state_lines.append(f"[{cid}] {lead['name']} | {lead['city']}, OK | {lead['description']}")
+            questions[f"fit_{cid}"] = {
+                "type": "score",
+                "instructions": f"Score fit of [{cid}] {lead['name']} for Marzipan. Higher is better.",
+                "criteria": LOCAL_CRITERIA,
+            }
+            questions[f"reason_{cid}"] = {
+                "type": "choice",
+                "instructions": f"Pick the best one-line reason for [{cid}] {lead['name']}.",
+                "criteria": LOCAL_REASONS,
+            }
+        raw = None
+        for attempt in range(3):
+            try:
+                raw = call_jev("\n".join(state_lines), questions)
+                break
+            except urllib.error.HTTPError as e:
+                print(f"Jev HTTP {e.code} on batch {i} (try {attempt + 1}): {e.read().decode(errors='replace')[:200]}", flush=True)
+            except Exception as e:  # noqa: BLE001
+                print(f"Jev error on batch {i} (try {attempt + 1}): {e}", flush=True)
+            time.sleep(3 * (attempt + 1))
+        if raw is None:
+            usage_acc["failed_batches"] += 1
+            for lead in batch:  # left unscored, flagged so the UI can show it
+                lead.update(score=None, reason=LOCAL_REASONS["thin_signal"], reason_key="unscored", confidence=0.0)
+            continue
+        usage = raw.get("usage") or {}
+        usage_acc["calls"] += 1
+        usage_acc["input_tokens"] += int(usage.get("input_tokens") or 0)
+        usage_acc["output_tokens"] += int(usage.get("output_tokens") or 0)
+        if usage.get("cost_usd") is not None:
+            usage_acc["cost_usd"] += float(usage["cost_usd"])
+            usage_acc["estimated"] = False
+        else:
+            usage_acc["cost_usd"] += (int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0)) * EST_USD_PER_TOKEN
+        answers = raw.get("answers") or {}
+        for lead in batch:
+            cid = lead["id"]
+            fit = answers.get(f"fit_{cid}") or {}
+            reason = answers.get(f"reason_{cid}") or {}
+            lead["score"] = score_to_100(fit.get("score")) if fit.get("score") is not None else None
+            rkey = reason.get("choice") if reason.get("choice") in LOCAL_REASONS else "thin_signal"
+            lead["reason_key"] = rkey
+            lead["reason"] = LOCAL_REASONS[rkey]
+            try:
+                lead["confidence"] = round(float(fit.get("confidence") or 0), 2)
+            except (TypeError, ValueError):
+                lead["confidence"] = 0.0
+        print(f"scored {i + len(batch)}/{len(leads)}", flush=True)
+        time.sleep(0.15)
+    return usage_acc
+
+
+def main_local(limit: int | None) -> None:
+    leads = load_local_leads()
+    if limit:
+        leads = leads[:limit]
+    print(f"Loaded {len(leads)} local leads", flush=True)
+    usage = score_local(leads)
+    if limit:
+        for l in leads:
+            print(f"{l['score']!s:>4} {l['confidence']:.2f} {l['reason_key']:<18} {l['name']} ({l['industry']}, {l['city']})")
+        print(json.dumps(usage))
+        print("Dry run (--limit): leads.json not changed.")
+        return
+    data = json.loads((ROOT / "leads.json").read_text(encoding="utf-8"))
+    kept = [l for l in data["leads"] if l.get("segment") != "Local small business"]
+    for l in kept:
+        l.setdefault("segment", "Regulated prospect")
+    merged = kept + leads
+    merged.sort(key=lambda x: (-(x.get("score") or 0), x.get("name") or ""))
+    data["leads"] = merged
+    data["industries"] = sorted({l["industry"] for l in merged})
+    data["segments"] = ["Regulated prospect", "Local small business"]
+    data["local_scoring"] = {
+        "model": "jev-latest",
+        "generated_at": time.strftime("%Y-%m-%d"),
+        "towns": LOCAL_TOWNS,
+        **{k: (round(v, 6) if isinstance(v, float) else v) for k, v in usage.items()},
+    }
+    data["disclaimer"] = (
+        "Proof of concept for Marzipan Solutions. Public business information only "
+        "(Scout regulated list; OpenStreetMap contributors, ODbL; Cushing Chamber and Downtown Perry Main Street directories). "
+        "Not legal advice. Nothing sends on its own."
+    )
+    (ROOT / "leads.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    scores = [l["score"] for l in leads if l.get("score") is not None]
+    print(json.dumps({
+        "local_leads": len(leads), "scored": len(scores), "total_leads": len(merged),
+        "score_avg": round(sum(scores) / len(scores), 1) if scores else None,
+        "strong_75plus": sum(1 for s in scores if s >= 75), "jev": usage,
+    }, indent=2))
+
+
 def main() -> None:
+    if "--local" in sys.argv:
+        lim = None
+        if "--limit" in sys.argv:
+            lim = int(sys.argv[sys.argv.index("--limit") + 1])
+        main_local(lim)
+        return
     leads = load_base_leads()
     print(f"Loaded {len(leads)} leads", flush=True)
     usage = batch_score(leads)

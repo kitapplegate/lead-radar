@@ -291,7 +291,7 @@
       <div class="radar-mark" aria-hidden="true"><div class="sweep"></div></div>
       <div>
         <h1>Lead Radar</h1>
-        <p>Find and work small regulated leads near Stillwater</p>
+        <p>Find and work small-business leads near Stillwater</p>
       </div>
     </div>
     <div class="stats">
@@ -311,6 +311,13 @@
 
   <section id="findView" class="find-view">
     <div class="filters">
+      <label class="f">Leads
+        <select id="segment">
+          <option value="all">All leads</option>
+          <option value="Local small business">Local small businesses</option>
+          <option value="Regulated prospect">Regulated prospects</option>
+        </select>
+      </label>
       <label class="f">Industry
         <select id="industry">
           <option value="all">All industries</option>
@@ -358,13 +365,22 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   }
 
-  // Industry options
+  // Older leads.json files have no segment field: those are all regulated prospects.
+  leads.forEach(l => { if (!l.segment) l.segment = "Regulated prospect"; });
+
+  // Industry options follow the Leads (segment) choice
   const industrySel = document.getElementById("industry");
-  (data.industries || []).forEach(ind => {
-    const o = document.createElement("option");
-    o.value = ind; o.textContent = ind;
-    industrySel.appendChild(o);
-  });
+  const segmentSel = document.getElementById("segment");
+  function fillIndustries() {
+    const seg = segmentSel.value;
+    const keep = industrySel.value;
+    const inds = [...new Set(leads.filter(l => seg === "all" || l.segment === seg).map(l => l.industry))].sort();
+    industrySel.innerHTML = `<option value="all">All industries</option>` +
+      inds.map(ind => `<option value="${escapeHtml(ind)}">${escapeHtml(ind)}</option>`).join("");
+    industrySel.value = inds.includes(keep) ? keep : "all";
+  }
+  fillIndustries();
+  segmentSel.addEventListener("change", () => { fillIndustries(); render(); });
 
   const radius = document.getElementById("radius");
   const radiusOut = document.getElementById("radiusOut");
@@ -377,7 +393,7 @@
   // Map
   const map = L.map("map", { zoomControl: true, attributionControl: true });
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 12,
+    maxZoom: 18,
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
   const stillwater = [data.center.lat, data.center.lon];
@@ -398,10 +414,16 @@
     return "low";
   }
 
+  function scoreText(s) {
+    return s == null ? "–" : String(s);
+  }
+
   function filtered() {
     const ind = industrySel.value;
+    const seg = segmentSel.value;
     const r = Number(radius.value);
     return leads
+      .filter(l => seg === "all" || l.segment === seg)
       .filter(l => ind === "all" || l.industry === ind)
       .filter(l => l.miles_from_stillwater == null || l.miles_from_stillwater <= r)
       .sort((a, b) => (b.score || 0) - (a.score || 0));
@@ -432,7 +454,7 @@
             <h2 class="name">${escapeHtml(l.name)}</h2>
             <p class="meta">${escapeHtml(l.industry)} · ${escapeHtml(l.city || "-")}, ${escapeHtml(l.state || "")}${l.miles_from_stillwater != null ? " · " + l.miles_from_stillwater + " mi" : ""}</p>
           </div>
-          <div class="chip ${scoreClass(l.score)}">${l.score}</div>
+          <div class="chip ${scoreClass(l.score)}">${scoreText(l.score)}</div>
         </div>
         <p class="reason">${escapeHtml(l.reason || "")}</p>
         <span class="stage-tag">${escapeHtml(l.stage || "New")}</span>
@@ -455,30 +477,36 @@
         fillOpacity: 0.85,
         weight: 1
       }).addTo(map);
-      m.bindTooltip(`${l.name} · ${l.score}`);
+      m.bindTooltip(`${escapeHtml(l.name)} · ${scoreText(l.score)}`);
       m.on("click", () => openLead(l.id));
       markers.push(m);
       bounds.push([l.lat, l.lon]);
     });
     if (bounds.length > 1) {
-      try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 9 }); } catch (_) {}
+      try { map.fitBounds(bounds, { padding: [24, 24], maxZoom: 13 }); } catch (_) {}
     }
   }
 
-  function renderPipeline() {
+  // The board follows the Find filters. "New" can hold hundreds of leads,
+  // so it shows the top NEW_CAP by score; worked stages always show everything.
+  const NEW_CAP = 40;
+  function renderPipeline(rows) {
     const board = document.getElementById("pipeView");
     board.innerHTML = STAGES.map(stage => {
-      const cards = leads.filter(l => (l.stage || "New") === stage)
+      const all = rows.filter(l => (l.stage || "New") === stage)
         .sort((a, b) => (b.score || 0) - (a.score || 0));
+      const cards = stage === "New" ? all.slice(0, NEW_CAP) : all;
+      const more = all.length - cards.length;
       return `
         <div class="col" data-stage="${stage}">
-          <h3>${stage} <span class="count">${cards.length}</span></h3>
+          <h3>${stage} <span class="count">${all.length}</span></h3>
           ${cards.map(l => `
             <div class="p-card" draggable="true" data-id="${l.id}">
               <div class="name">${escapeHtml(l.name)}</div>
-              <div class="meta">${escapeHtml(l.industry)} · ${l.score}</div>
+              <div class="meta">${escapeHtml(l.industry)} · ${scoreText(l.score)}</div>
             </div>
           `).join("") || `<div class="empty" style="padding:16px;font-size:0.85rem">Empty</div>`}
+          ${more > 0 ? `<div class="empty" style="padding:10px;font-size:0.8rem">+${more} more · narrow the filters on Find</div>` : ""}
         </div>
       `;
     }).join("");
@@ -505,7 +533,7 @@
     updateStats(rows);
     renderList(rows);
     renderMap(rows);
-    renderPipeline();
+    renderPipeline(rows);
   }
 
   function setStage(id, stage) {
@@ -527,7 +555,25 @@
     "Water and Wastewater": "Your operators already ran the bench sheets. I build tools that line those numbers up for the DMR so the person who signs can check it in minutes, not a Saturday.",
     "Hazmat Trucking": "Every driver file is a pile of dates that come due on different days. I build tools that flag what's due next so your safety person catches it before a roadside stop does.",
     "Waste Haulers": "Your drivers get the signature at every stop. I build tools that turn that stack of trip tickets into clean records and an annual summary draft for your office to check.",
-    "Ag Chemical Dealers": "Every restricted-use sale means checking a license and writing it down right, in the middle of spring rush. I build tools that keep that sales log clean so your manager can review it when they need to."
+    "Ag Chemical Dealers": "Every restricted-use sale means checking a license and writing it down right, in the middle of spring rush. I build tools that keep that sales log clean so your manager can review it when they need to.",
+    // Local small businesses (Stillwater, Cushing, Perry, Morrison)
+    "Medical & Dental": "Front desks spend hours on intake forms, recall reminders, and insurance back-and-forth. I build tools that draft those reminders and line up the paperwork so your staff only has to check and send.",
+    "Veterinary & Animal": "Vaccine reminders and visit follow-ups pile up fast. I build tools that draft them from your own records so your front desk just reviews and sends.",
+    "Legal": "A lot of every new matter is the same letters and forms rebuilt from scratch. I build tools that draft those from your own templates and files so an attorney only has to review them.",
+    "Accounting & Finance": "Tax season means chasing the same missing documents from the same clients. I build tools that track what's in, draft the follow-ups, and wait for your OK before anything goes out.",
+    "Insurance": "Renewals, quote follow-ups, and certificate requests all come due on their own schedules. I build tools that flag what's next and draft the emails so your team just reviews and sends.",
+    "Real Estate & Property": "Work orders, lease paperwork, and tenant messages never stop coming. I build tools that sort them and draft the replies so your manager can approve them in a few minutes.",
+    "Trades & Contractors": "The job's done when the crew leaves, but the paperwork isn't. I build tools that turn field notes and photos into the invoice or closeout packet so your office only has to check it.",
+    "Energy & Industrial": "Field tickets, safety forms, and compliance logs get retyped in the office every week. I build tools that pull them together so the person who signs can review them fast.",
+    "Auto & Equipment": "Estimates, service reminders, and parts orders eat the counter's day. I build tools that draft the reminders and keep orders straight so your people can stay in the shop.",
+    "Lodging & Events": "Bookings, event contracts, and guest follow-ups all run on their own clocks. I build tools that keep them lined up and draft the messages for you to approve.",
+    "Professional Services": "There's usually one report or client update somebody builds by hand every week. I build tools that put it together on schedule and wait for your OK before it goes out.",
+    "Childcare & Education": "Enrollment forms, attendance, and parent messages take time away from the kids. I build tools that keep that paperwork organized and draft the messages for your staff to send.",
+    "Salon & Personal Care": "No-shows, rebooking reminders, and product orders are easy to let slip on a busy day. I build tools that draft those reminders and keep orders straight so you don't have to.",
+    "Fitness & Recreation": "Memberships, waivers, and lapsed-member follow-ups pile up behind the front desk. I build tools that track them and draft the outreach so your staff just reviews and sends.",
+    "Food & Drink": "Supplier orders, catering requests, and the weekly schedule all get done after close. I build tools that take a piece of that off your plate so you can get home sooner.",
+    "Retail": "Reorders and special orders live in notebooks and memory. I build tools that keep track of them and remind you before something runs out.",
+    "Agriculture": "Seasonal records and customer orders tend to live on paper until somebody needs them. I build tools that keep them organized so they're ready when you need them."
   };
   const STATE_ADDON = {
     "Spill Response|OK": "On Oklahoma oilfield work, OCC also wants that 24-hour spill report kept straight.",
@@ -553,7 +599,7 @@
   function industryParagraph(lead) {
     const industry = lead.industry || "";
     const state = lead.state || "";
-    const base = INDUSTRY_PARA[industry] || "Small regulated shops drown in the same paperwork week after week. I build tools that organize it so your own people can review and sign what goes out.";
+    const base = INDUSTRY_PARA[industry] || "Small teams lose hours to the same paperwork week after week. I build tools that organize it so your own people can review and sign what goes out.";
     const addon = STATE_ADDON[industry + "|" + state];
     if (!addon) return base;
     const parts = base.match(/[^.!?]+[.!?]+/g) || [base];
@@ -613,7 +659,7 @@
       <p class="meta">${escapeHtml(l.industry)} · ${escapeHtml(l.city || "-")}, ${escapeHtml(l.state || "")}${l.miles_from_stillwater != null ? " · " + l.miles_from_stillwater + " mi from Stillwater" : ""}</p>
       <div class="section">
         <h3>Jev fit score</h3>
-        <div class="chip ${scoreClass(l.score)}" style="display:inline-block">${l.score}</div>
+        <div class="chip ${scoreClass(l.score)}" style="display:inline-block">${scoreText(l.score)}</div>
         <p class="reason" style="margin-top:8px">${escapeHtml(l.reason || "")}</p>
       </div>
       <div class="section">
