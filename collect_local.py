@@ -29,6 +29,7 @@ TOWNS = {
     "Cushing": (35.9849, -96.7674, 0.05, 0.06),
     "Perry": (36.2907, -97.2884, 0.045, 0.055),
     "Morrison": (36.2973, -97.0081, 0.025, 0.03),
+    "Pawnee": (36.3384, -96.8032, 0.03, 0.04),
 }
 
 # (osm key, value regex) -> category. First match wins, so order matters.
@@ -202,7 +203,7 @@ def slug(s: str) -> str:
 
 
 GEOCODER = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
-ZIPS = {"Stillwater": "74074", "Cushing": "74023", "Perry": "73077", "Morrison": "73061"}
+ZIPS = {"Stillwater": "74074", "Cushing": "74023", "Perry": "73077", "Morrison": "73061", "Pawnee": "74058"}
 
 
 def geocode(street: str, town: str, cache: dict) -> tuple[float, float] | None:
@@ -292,15 +293,16 @@ def merge_directories(out: list[dict], dropped: dict) -> int:
 
 def main() -> None:
     cache = ROOT / "local_osm_raw.json"
+    raw = {}
     if cache.exists() and "--refresh" not in sys.argv:
         raw = json.loads(cache.read_text(encoding="utf-8"))
         print("Using cached local_osm_raw.json (pass --refresh to refetch)")
-    else:
-        raw = {}
-        for name, box in TOWNS.items():
-            raw[name] = fetch_town(name, *box)
-            print(f"{name}: {len(raw[name])} OSM elements", flush=True)
-            time.sleep(3)
+    missing = [n for n in TOWNS if n not in raw]  # new towns get fetched on their own
+    for name in missing:
+        raw[name] = fetch_town(name, *TOWNS[name])
+        print(f"{name}: {len(raw[name])} OSM elements", flush=True)
+        time.sleep(3)
+    if missing:
         cache.write_text(json.dumps(raw), encoding="utf-8")
 
     seen: set[str] = set()

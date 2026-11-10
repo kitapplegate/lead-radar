@@ -19,7 +19,7 @@ Open the GitHub Pages site after it is enabled:
 
 ## Data
 
-Public business information only: Scout's Regulated Prospects list (167 firms, Oct 2026), OpenStreetMap (© OpenStreetMap contributors, ODbL), and the Cushing Chamber and Downtown Perry Main Street directories. No private personal contact info. City coordinates use an offline centroid lookup for OK, KS, MO, AR, and TX. Not legal advice.
+Public business information only: Scout's Regulated Prospects list (167 firms, Oct 2026), OpenStreetMap (© OpenStreetMap contributors, ODbL), the Cushing Chamber and Downtown Perry Main Street directories, and us-business.info listings for Pawnee. No private personal contact info. City coordinates use an offline centroid lookup for OK, KS, MO, AR, and TX. Not legal advice.
 
 ## Scoring
 
@@ -30,12 +30,12 @@ Leads are pre-scored offline with TypeSafe **Jev** (`build_leads.py`). The demo 
 python3 build_leads.py
 ```
 
-## Local small businesses (Stillwater, Cushing, Perry, Morrison)
+## Local small businesses (Stillwater, Cushing, Perry, Morrison, Pawnee)
 
-A second segment covers every small business in those four towns, not just regulated firms. The **Leads** filter switches between segments.
+A second segment covers every small business in those five towns, not just regulated firms. The **Leads** filter switches between segments.
 
-1. `python3 collect_local.py` pulls named businesses from OpenStreetMap (cached in `local_osm_raw.json`; `--refresh` refetches), drops non-businesses and chains, buckets them into categories, and merges the hand-curated directory lists in `sources/*.tsv` (Cushing Chamber, Downtown Perry Main Street). Street addresses are geocoded with the free US Census geocoder (`sources/geocode_cache.json`). Output: `local_candidates.json`.
-2. `python3 build_leads.py --local` scores them with Jev against Marzipan's four services (SOP search, reports that run, scheduled agents, field-to-report paperwork) and merges them into `leads.json`. The regulated leads are left as they are. `--limit 20` is a dry run that prints scores without writing anything.
+1. `python3 collect_local.py` pulls named businesses from OpenStreetMap (cached in `local_osm_raw.json`; `--refresh` refetches), drops non-businesses and chains, buckets them into categories, and merges the hand-curated directory lists in `sources/*.tsv` (Cushing Chamber, Downtown Perry Main Street, and Pawnee listings from the us-business.info aggregator, which may include stale entries). Street addresses are geocoded with the free US Census geocoder (`sources/geocode_cache.json`). Output: `local_candidates.json`.
+2. `python3 build_leads.py --local` scores them with Jev against Marzipan's four services (SOP search, reports that run, scheduled agents, field-to-report paperwork) and merges them into `leads.json`. The regulated leads are left as they are. Scoring is incremental: leads that already have a score keep it, so adding a town only scores the new businesses (`--rescore` redoes everything). `--limit 20` is a dry run that prints scores without writing anything. New towns go in `TOWNS` (and `ZIPS`) in `collect_local.py`.
 
 Captive insurance agents (State Farm, Allstate, etc.) are kept as leads, since each is a locally owned office. The Stillwater Chamber has no public directory right now, so Stillwater coverage comes from OSM, which is light on offices.
 

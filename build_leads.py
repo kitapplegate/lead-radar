@@ -300,7 +300,7 @@ def batch_score(leads: list[dict]) -> dict:
 # merged into the existing leads.json; the regulated leads stay untouched.
 # ---------------------------------------------------------------------------
 
-LOCAL_TOWNS = ["Stillwater", "Cushing", "Perry", "Morrison"]
+LOCAL_TOWNS = ["Stillwater", "Cushing", "Perry", "Morrison", "Pawnee"]
 
 LOCAL_REASONS = {
     "field_reports": "Field crew whose job notes, photos and logs become reports by hand",
@@ -449,19 +449,32 @@ def score_local(leads: list[dict]) -> dict:
     return usage_acc
 
 
-def main_local(limit: int | None) -> None:
+def main_local(limit: int | None, rescore: bool) -> None:
     leads = load_local_leads()
+    data = json.loads((ROOT / "leads.json").read_text(encoding="utf-8"))
+    # Incremental by default: a lead that already has a Jev score keeps it, so
+    # adding a town doesn't reshuffle every other score. --rescore redoes all.
+    prev = {
+        l["id"]: l for l in data["leads"]
+        if l.get("segment") == "Local small business" and l.get("score") is not None
+    }
+    if rescore:
+        prev = {}
+    for l in leads:
+        if l["id"] in prev:
+            for k in ("score", "reason", "reason_key", "confidence"):
+                l[k] = prev[l["id"]][k]
+    to_score = [l for l in leads if l["id"] not in prev]
     if limit:
-        leads = leads[:limit]
-    print(f"Loaded {len(leads)} local leads", flush=True)
-    usage = score_local(leads)
+        to_score = to_score[:limit]
+    print(f"Loaded {len(leads)} local leads; {len(to_score)} need scoring", flush=True)
+    usage = score_local(to_score) if to_score else {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "estimated": True, "failed_batches": 0}
     if limit:
-        for l in leads:
+        for l in to_score:
             print(f"{l['score']!s:>4} {l['confidence']:.2f} {l['reason_key']:<18} {l['name']} ({l['industry']}, {l['city']})")
         print(json.dumps(usage))
         print("Dry run (--limit): leads.json not changed.")
         return
-    data = json.loads((ROOT / "leads.json").read_text(encoding="utf-8"))
     kept = [l for l in data["leads"] if l.get("segment") != "Local small business"]
     for l in kept:
         l.setdefault("segment", "Regulated prospect")
@@ -474,17 +487,19 @@ def main_local(limit: int | None) -> None:
         "model": "jev-latest",
         "generated_at": time.strftime("%Y-%m-%d"),
         "towns": LOCAL_TOWNS,
-        **{k: (round(v, 6) if isinstance(v, float) else v) for k, v in usage.items()},
+        "newly_scored": len(to_score),
+        "reused_scores": len(leads) - len(to_score),
+        "last_run": {k: (round(v, 6) if isinstance(v, float) else v) for k, v in usage.items()},
     }
     data["disclaimer"] = (
         "Proof of concept for Marzipan Solutions. Public business information only "
-        "(Scout regulated list; OpenStreetMap contributors, ODbL; Cushing Chamber and Downtown Perry Main Street directories). "
-        "Not legal advice. Nothing sends on its own."
+        "(Scout regulated list; OpenStreetMap contributors, ODbL; Cushing Chamber and Downtown Perry Main Street "
+        "directories; us-business.info listings for Pawnee). Not legal advice. Nothing sends on its own."
     )
     (ROOT / "leads.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     scores = [l["score"] for l in leads if l.get("score") is not None]
     print(json.dumps({
-        "local_leads": len(leads), "scored": len(scores), "total_leads": len(merged),
+        "local_leads": len(leads), "newly_scored": len(to_score), "scored": len(scores), "total_leads": len(merged),
         "score_avg": round(sum(scores) / len(scores), 1) if scores else None,
         "strong_75plus": sum(1 for s in scores if s >= 75), "jev": usage,
     }, indent=2))
@@ -495,7 +510,7 @@ def main() -> None:
         lim = None
         if "--limit" in sys.argv:
             lim = int(sys.argv[sys.argv.index("--limit") + 1])
-        main_local(lim)
+        main_local(lim, "--rescore" in sys.argv)
         return
     leads = load_base_leads()
     print(f"Loaded {len(leads)} leads", flush=True)
